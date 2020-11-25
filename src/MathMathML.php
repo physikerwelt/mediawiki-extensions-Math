@@ -6,6 +6,7 @@
  * @license GPL-2.0-or-later
  */
 
+use MediaWiki\Http\HttpRequestFactory;
 use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\MediaWikiServices;
 use Psr\Log\LoggerInterface;
@@ -17,10 +18,6 @@ class MathMathML extends MathRenderer {
 
 	/** @var string[] */
 	protected $defaultAllowedRootElements = [ 'math' ];
-	/** @var string[] */
-	protected $restbaseInputTypes = [ 'tex', 'inline-tex', 'chem' ];
-	/** @var string[] */
-	protected $restbaseRenderingModes = [ 'mathml', 'png' ];
 	/** @var string[] */
 	protected $allowedRootElements = [];
 	/** @var string|string[] */
@@ -88,15 +85,34 @@ class MathMathML extends MathRenderer {
 	 * @param array[] $tags
 	 */
 	public static function batchEvaluate( array $tags ) {
-		$rbis = [];
-		foreach ( $tags as $key => $tag ) {
-			/** @var MathRenderer $renderer */
-			$renderer = $tag[0];
-			$rbi = new MathRestbaseInterface( $renderer->getTex(), $renderer->getInputType() );
-			$renderer->setRestbaseInterface( $rbi );
-			$rbis[] = $rbi;
+		global $wgMathConcurrentReqs, $wgMathLaTeXMLTimeout;
+		$http = MediaWikiServices::getInstance()->getHttpRequestFactory();
+		$skips = [];
+		$reqs = [];
+		$i = 0;
+		foreach ( $tags as $tag ) {
+			/** @var $renderer MathMathML */
+			list( $renderer, $parser ) = $tag;
+			if ( !$renderer->readFromDatabase() ){
+				$reqs[] = $http->request('POST', "{$renderer->pickHost()}/complete" ,
+					['HTTPTimeout' => $wgMathLaTeXMLTimeout]);
+			} else {
+				$skips[] = $i;
+			}
+			$i++;
 		}
-		MathRestbaseInterface::batchEvaluate( $rbis );
+		$results = $http->createMultiClient( [ 'maxConnsPerHost' => $wgMathConcurrentReqs ] )
+			->runMulti($reqs);
+		$resultSize = count( $results );
+		$j = 0;
+		for ( $i = 0; $i < $resultSize; $i++ ){
+			if ( !in_array( $i, $skips ) ) {
+				/** @var $renderer MathMathML */
+				list( $renderer, $parser ) = $tag[$i];
+				$renderer->evaluateCompleteResponse( $results[$j] );
+				$j++;
+			}
+		}
 	}
 
 	/**
@@ -136,31 +152,10 @@ class MathMathML extends MathRenderer {
 	 * @return bool
 	 */
 	public function render( $forceReRendering = false ) {
-		global $wgMathFullRestbaseURL;
+		global $wgMathMathMLUrl;
 		try {
 			if ( $forceReRendering ) {
 				$this->setPurge( true );
-			}
-			if ( in_array( $this->inputType, $this->restbaseInputTypes ) &&
-				 in_array( $this->mode, $this->restbaseRenderingModes )
-			) {
-				if ( !$this->rbi ) {
-					$this->rbi =
-						new MathRestbaseInterface( $this->getTex(), $this->getInputType() );
-					$this->rbi->setPurge( $this->isPurge() );
-				}
-				$rbi = $this->rbi;
-				if ( $rbi->getSuccess() ) {
-					$this->mathml = $rbi->getMathML();
-					$this->mathoidStyle = $rbi->getMathoidStyle();
-					$this->svgPath = $rbi->getFullSvgUrl();
-					$this->pngPath = $rbi->getFullPngUrl();
-					$this->warnings = $rbi->getWarnings();
-				} elseif ( $this->lastError === '' ) {
-					$this->doCheck();
-				}
-				$this->changed = false;
-				return $rbi->getSuccess();
 			}
 			if ( $this->renderingRequired() ) {
 				return $this->doRender();
@@ -168,7 +163,7 @@ class MathMathML extends MathRenderer {
 			return true;
 		} catch ( Exception $e ) {
 			$this->lastError = $this->getError( 'math_mathoid_error',
-				$wgMathFullRestbaseURL, $e->getMessage() );
+				$wgMathMathMLUrl, $e->getMessage() );
 			$this->logger->error( $e->getMessage(), [ $e, $this ] );
 			return false;
 		}
@@ -297,7 +292,15 @@ class MathMathML extends MathRenderer {
 		} elseif ( $this->inputType == 'ascii' ) {
 			$out = 'type=asciimath&q=' . rawurlencode( $input );
 		} else {
-			throw new MWException( 'Internal error: Restbase should be used for tex rendering' );
+			// restored from Ief1b6345c17db41f92684e00233d57240e97599f
+			if ( $this->getMathStyle() == 'inlineDisplaystyle' ) {
+				// default preserve the (broken) layout as it was
+				$out = 'type=inline-TeX&q=' . rawurlencode( '{\\displaystyle ' . $input . '}' );
+			} elseif ( $this->getMathStyle() == 'inline' ) {
+				$out = 'type=inline-TeX&q=' . rawurlencode( $input );
+			} else {
+				$out = 'type=tex&q=' . rawurlencode( $input );
+			}
 		}
 		$this->logger->debug( 'Get post data: ' . $out );
 		return $out;
@@ -608,5 +611,10 @@ class MathMathML extends MathRenderer {
 			return true;
 		}
 		return false;
+	}
+
+	private function evaluateCompleteResponse( array $response ) {
+		list( $rcode, $rdesc, $rhdrs, $rbody, $rerr ) = $response;
+
 	}
 }

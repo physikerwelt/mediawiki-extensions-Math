@@ -14,24 +14,9 @@ use Wikibase\Lib\Formatters\SnakFormatter;
  * @license GPL-2.0-or-later
  */
 class MathFormatterTest extends MediaWikiTestCase {
+	use MockHttpTrait;
 
-	private const SOME_TEX = 'a^2+b^2 < c^2';
-
-	protected static $hasRestbase;
-
-	public static function setUpBeforeClass() : void {
-		$rbi = new MathRestbaseInterface();
-		self::$hasRestbase = $rbi->checkBackend( true );
-	}
-
-	protected function setUp() : void {
-		$this->markTestSkipped( 'All HTTP requests are banned in tests. See T265628.' );
-		parent::setUp();
-
-		if ( !self::$hasRestbase ) {
-			$this->markTestSkipped( 'Can not connect to Restbase Math interface.' );
-		}
-	}
+	private const SOME_TEX = '\sin x';
 
 	/**
 	 * Checks the
@@ -56,6 +41,12 @@ class MathFormatterTest extends MediaWikiTestCase {
 	}
 
 	public function testUnknownFormatFallsBackToMathMl() {
+		$this->installMockHttp( [
+			$this->makeFakeHttpRequest( file_get_contents( __DIR__ .
+				'/InputCheck/data/sinx.json' ) ),
+			$this->makeFakeHttpRequest( file_get_contents( __DIR__ .
+				'/data/sinx.json' ) ),
+			] );
 		$formatter = new MathFormatter( 'unknown/unknown' );
 		$value = new StringValue( self::SOME_TEX );
 		$resultFormat = $formatter->format( $value );
@@ -66,6 +57,10 @@ class MathFormatterTest extends MediaWikiTestCase {
 	 * @covers \MathFormatter::format
 	 */
 	public function testUnknownFormatFailure() {
+		$this->installMockHttp( [
+			$this->makeFakeHttpRequest( file_get_contents( __DIR__ .
+				'/InputCheck/data/invalidF.json' ), 400 )
+		] );
 		$formatter = new MathFormatter( 'unknown/unknown' );
 		$value = new StringValue( '\noTex' );
 		$resultFormat = $formatter->format( $value );
@@ -80,6 +75,12 @@ class MathFormatterTest extends MediaWikiTestCase {
 	}
 
 	public function testFormatHtml() {
+		$this->installMockHttp( [
+			$this->makeFakeHttpRequest( file_get_contents( __DIR__ .
+				'/InputCheck/data/sinx.json' ) ),
+			$this->makeFakeHttpRequest( file_get_contents( __DIR__ .
+				'/data/sinx.json' ) ),
+		] );
 		$formatter = new MathFormatter( SnakFormatter::FORMAT_HTML );
 		$value = new StringValue( self::SOME_TEX );
 		$resultFormat = $formatter->format( $value );
@@ -87,6 +88,12 @@ class MathFormatterTest extends MediaWikiTestCase {
 	}
 
 	public function testFormatDiffHtml() {
+		$this->installMockHttp( [
+			$this->makeFakeHttpRequest( file_get_contents( __DIR__ .
+				'/InputCheck/data/sinx.json' ) ),
+			$this->makeFakeHttpRequest( file_get_contents( __DIR__ .
+				'/data/sinx.json' ) ),
+		] );
 		$formatter = new MathFormatter( SnakFormatter::FORMAT_HTML_DIFF );
 		$value = new StringValue( self::SOME_TEX );
 		$resultFormat = $formatter->format( $value );

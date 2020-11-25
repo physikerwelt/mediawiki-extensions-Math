@@ -203,22 +203,20 @@ class MathHooks {
 	private static function mathPostTagHook( $renderer, $parser ) {
 		$checkResult = $renderer->checkTeX();
 
+		$renderer->addTrackingCategories( $parser );
 		if ( $checkResult !== true ) {
-			$renderer->addTrackingCategories( $parser );
 			return $renderer->getLastError();
 		}
 
 		if ( $renderer->render() ) {
 			LoggerFactory::getInstance( 'Math' )->debug( "Rendering successful. Writing output" );
 			$renderedMath = $renderer->getHtmlOutput();
-			$renderer->addTrackingCategories( $parser );
 		} else {
 			LoggerFactory::getInstance( 'Math' )->warning(
 				"Rendering failed. Printing error message." );
 			// Set a short parser cache time (10 minutes) after encountering
 			// render issues, but not syntax issues.
 			$parser->getOutput()->updateCacheExpiry( 600 );
-			$renderer->addTrackingCategories( $parser );
 			return $renderer->getLastError();
 		}
 		Hooks::run( 'MathFormulaPostRender',
