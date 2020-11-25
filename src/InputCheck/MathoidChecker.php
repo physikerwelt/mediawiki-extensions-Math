@@ -2,9 +2,13 @@
 
 namespace MediaWiki\Extension\Math\InputCheck;
 
+use MathHooks;
+use MathRenderer;
+use MathSource;
 use MediaWiki\Http\HttpRequestFactory;
 use MWException;
 use Psr\Log\LoggerInterface;
+use stdClass;
 use WANObjectCache;
 
 class MathoidChecker extends BaseChecker {
@@ -23,6 +27,10 @@ class MathoidChecker extends BaseChecker {
 	private $type;
 	/** @var LoggerInterface */
 	private $logger;
+	/** @var int */
+	private $statusCode;
+	/** @var string */
+	private $response;
 
 	/**
 	 * @param WANObjectCache $cache
@@ -55,11 +63,14 @@ class MathoidChecker extends BaseChecker {
 	 * @return array
 	 */
 	public function getCheckResponse() : array {
-		return $this->cache->getWithSetCallback(
-			$this->getCacheKey(),
-			WANObjectCache::TTL_INDEFINITE,
-			[ $this, 'runCheck' ]
-		);
+		if ( !isset( $this->statusCode ) ) {
+			list( $this->statusCode, $this->response ) = $this->cache->getWithSetCallback(
+				$this->getCacheKey(),
+				WANObjectCache::TTL_INDEFINITE,
+				[ $this, 'runCheck' ]
+			);
+		}
+		return [ $this->statusCode, $this->response ];
 	}
 
 	/**
@@ -103,4 +114,67 @@ class MathoidChecker extends BaseChecker {
 		);
 		throw $e;
 	}
+
+	public function isValid() {
+		[ $statusCode ] = $this->getCheckResponse();
+		if ( $statusCode === 200 ) {
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * @see https://phabricator.wikimedia.org/T119300
+	 * @param stdClass $e
+	 * @param MathRenderer|null $errorRenderer
+	 * @return string|null
+	 */
+	public function errorObjectToHtml( $e, $errorRenderer = null ) {
+		if ( $errorRenderer === null ) {
+			$errorRenderer = new MathSource( $this->inputTeX );
+		}
+		if ( isset( $e->error->message ) ) {
+			if ( $e->error->message === 'Illegal TeX function' ) {
+				return $errorRenderer->getError( 'math_unknown_function', $e->error->found );
+			} elseif ( preg_match( '/Math extension/', $e->error->message ) ) {
+				$names = MathHooks::getMathNames();
+				$mode = $names['mathml'];
+				$msg = $e->error->message;
+
+				return $errorRenderer->getError(
+					'math_invalidresponse',
+					$mode,
+					$this->url,
+					$msg );
+			}
+
+			return $errorRenderer->getError( 'math_syntax_error' );
+		}
+
+		return $errorRenderer->getError( 'math_unknown_error' );
+	}
+
+	public function getError() {
+		[ $statusCode, $content ] = $this->getCheckResponse();
+		if ( $statusCode !== 200 ) {
+			// phpcs:ignore Generic.PHP.NoSilencedErrors.Discouraged
+			$json = @json_decode( $content );
+			if ( $json && isset( $json->detail ) ) {
+				return $this->errorObjectToHtml( $json->detail );
+			}
+			return $this->errorObjectToHtml( (object)[ 'error' => (object)[
+				'message' => 'Math extension cannot connect to mathoid.' ] ] );
+		}
+		return parent::getError();
+	}
+
+	public function getValidTex() {
+		[ $statusCode, $content ] = $this->getCheckResponse();
+		if ( $statusCode === 200 ) {
+			$json = json_decode( $content );
+			return $json->checked;
+		}
+		return parent::getValidTex();
+	}
+
 }

@@ -6,11 +6,14 @@ use HashBagOStuff;
 use MediaWiki\Http\HttpRequestFactory;
 use MediaWiki\MediaWikiServices;
 use MediaWikiTestCase;
+use MockHttpTrait;
 use WANObjectCache;
 
 class MathoidCheckerTest extends MediaWikiTestCase {
+	use MockHttpTrait;
+
 	private const SAMPLE_KEY = 'global:MediaWiki\Extension\Math\InputCheck\MathoidChecker:' .
-		'75463d043824b7ba3ebf56f082e0b4fc065aaf41';
+	'75463d043824b7ba3ebf56f082e0b4fc065aaf41';
 
 	public function provideTexExamples() {
 		return [
@@ -36,12 +39,12 @@ class MathoidCheckerTest extends MediaWikiTestCase {
 	 */
 	public function testResponseFromCache() {
 		$fakeWAN = new WANObjectCache( [ 'cache' => new HashBagOStuff() ] );
-		$fakeWAN->set( self::SAMPLE_KEY, [ 'expected' ] );
+		$fakeWAN->set( self::SAMPLE_KEY, [ 999, 'expected' ] );
 		// double check that the fake works
-		$this->assertSame( [ 'expected' ], $fakeWAN->get( self::SAMPLE_KEY ) );
+		$this->assertSame( [ 999, 'expected' ], $fakeWAN->get( self::SAMPLE_KEY ) );
 		$this->setService( 'MainWANObjectCache', $fakeWAN );
 		$checker = $this->getMathoidChecker();
-		$this->assertSame( [ 'expected' ], $checker->getCheckResponse() );
+		$this->assertSame( [ 999, 'expected' ], $checker->getCheckResponse() );
 	}
 
 	/**
@@ -74,6 +77,49 @@ class MathoidCheckerTest extends MediaWikiTestCase {
 	}
 
 	/**
+	 * @covers       \MediaWiki\Extension\Math\InputCheck\MathoidChecker::isValid
+	 * @dataProvider provideMathoidSamples
+	 * @param $input string LaTeX input to check
+	 * @param $request HttpRequestFactory fake mathoid response
+	 * @param $expeted array
+	 */
+	public function testIsValid( $input, $request, $expeted ) {
+		$this->installMockHttp( $request );
+		$checker = $this->getMathoidChecker( $input );
+		$this->assertSame( $expeted['valid'], $checker->isValid() );
+	}
+
+	/**
+	 * @covers       \MediaWiki\Extension\Math\InputCheck\MathoidChecker::getValidTex
+	 * @dataProvider provideMathoidSamples
+	 * @param $input string LaTeX input to check
+	 * @param $request HttpRequestFactory fake mathoid response
+	 * @param $expeted array
+	 */
+	public function testGetChecked( $input, $request, $expeted ) {
+		$this->installMockHttp( $request );
+		$checker = $this->getMathoidChecker( $input );
+		$this->assertSame( $expeted['checked'], $checker->getValidTex() );
+	}
+
+	/**
+	 * @covers       \MediaWiki\Extension\Math\InputCheck\MathoidChecker::getError
+	 * @dataProvider provideMathoidSamples
+	 * @param $input string LaTeX input to check
+	 * @param $request HttpRequestFactory fake mathoid response
+	 * @param $expeted array
+	 */
+	public function testGetError( $input, $request, $expeted ) {
+		$this->installMockHttp( $request );
+		$checker = $this->getMathoidChecker( $input );
+		if ( array_key_exists( 'error', $expeted ) ) {
+			$this->assertStringContainsString( $expeted['error'], $checker->getError() );
+		} else {
+			$this->assertNull( $checker->getError() );
+		}
+	}
+
+	/**
 	 * @param string $tex
 	 * @return MathoidChecker
 	 */
@@ -95,6 +141,30 @@ class MathoidCheckerTest extends MediaWikiTestCase {
 		}
 		$fakeHTTP->expects( $this->once() )->method( 'create' )->willReturn( $fakeRequest );
 		$this->setService( 'HttpRequestFactory', $fakeHTTP );
+	}
+
+	public function provideMathoidSamples() {
+		yield '\ sin x' => [
+			'\sin x',
+			$this->makeFakeHttpRequest( file_get_contents( __DIR__ . '/data/sinx.json' ), 200 ),
+			[ 'valid' => true, 'checked' => '\sin x' ],
+		];
+		yield 'invalid F' => [
+			'1+\invalid',
+			$this->makeFakeHttpRequest( file_get_contents( __DIR__ . '/data/invalidF.json' ), 400 ),
+			[ 'valid' => false, 'checked' => null, 'error' => 'unknown function' ],
+		];
+		yield 'unescaped' => [
+			'1.5%',
+			$this->makeFakeHttpRequest( file_get_contents( __DIR__ . '/data/deprecated.json' ),
+				200 ),
+			[ 'valid' => true, 'checked' => '1.5\%' ],
+		];
+		yield 'syntax error' => [
+			'\left( x',
+			$this->makeFakeHttpRequest( file_get_contents( __DIR__ . '/data/syntaxE.json' ), 400 ),
+			[ 'valid' => false, 'checked' => null, 'error' => 'Failed to parse' ],
+		];
 	}
 
 }

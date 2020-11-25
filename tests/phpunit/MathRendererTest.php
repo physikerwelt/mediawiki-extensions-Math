@@ -10,28 +10,11 @@
  * @license GPL-2.0-or-later
  */
 class MathRendererTest extends MediaWikiTestCase {
+	use MockHttpTrait;
+
 	private const SOME_TEX = "a+b";
 	private const TEXVCCHECK_INPUT = '\forall \epsilon \exist \delta';
-	private const TEXVCCHECK_OUTPUT = '\forall \epsilon \exists \delta ';
-
-	protected static $hasRestbase;
-
-	public static function setUpBeforeClass() : void {
-		$rbi = new MathRestbaseInterface();
-		self::$hasRestbase = $rbi->checkBackend( true );
-	}
-
-	/**
-	 * Sets up the fixture, for example, opens a network connection.
-	 * This method is called before a test is executed.
-	 */
-	protected function setUp() : void {
-		$this->markTestSkipped( 'All HTTP requests are banned in tests. See T265628.' );
-		parent::setUp();
-		if ( !self::$hasRestbase ) {
-			$this->markTestSkipped( "Can not connect to Restbase Math interface." );
-		}
-	}
+	private const TEXVCCHECK_OUTPUT = '\sin x';
 
 	/**
 	 * Checks the tex and hash functions
@@ -92,7 +75,9 @@ class MathRendererTest extends MediaWikiTestCase {
 		$this->assertTrue( $renderer->isPurge(), "Test purge." );
 	}
 
-	public function testDisableCheckingAlways() {
+	public function testDisableCheckingNever() {
+		$this->installMockHttp( $this->makeFakeHttpRequest( file_get_contents( __DIR__ .
+			'/InputCheck/data/sinx.json' ) ) );
 		$this->setMwGlobals( "wgMathDisableTexFilter", 'never' );
 		$renderer =
 			$this->getMockBuilder( MathRenderer::class )->setMethods( [
@@ -111,7 +96,7 @@ class MathRendererTest extends MediaWikiTestCase {
 		$this->assertTrue( $renderer->checkTeX() );
 	}
 
-	public function testDisableCheckingNever() {
+	public function testDisableCheckingAlways() {
 		$this->setMwGlobals( "wgMathDisableTexFilter", 'always' );
 		$renderer =
 			$this->getMockBuilder( MathRenderer::class )->setMethods( [
@@ -129,6 +114,8 @@ class MathRendererTest extends MediaWikiTestCase {
 	}
 
 	public function testCheckingNewUnknown() {
+		$this->installMockHttp( $this->makeFakeHttpRequest( file_get_contents( __DIR__ .
+			'/InputCheck/data/sinx.json' ) ) );
 		$this->setMwGlobals( "wgMathDisableTexFilter", 'new' );
 		$renderer =
 			$this->getMockBuilder( MathRenderer::class )->setMethods( [

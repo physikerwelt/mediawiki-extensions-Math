@@ -151,7 +151,6 @@ class MathMathMLCli extends MathMathML {
 	}
 
 	protected function doCheck() {
-		// avoid that restbase is called if check is set to always
 		return $this->texSecure;
 	}
 

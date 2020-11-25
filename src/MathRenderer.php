@@ -9,8 +9,9 @@
  * @file
  */
 
-use MediaWiki\Extension\Math\InputCheck\RestbaseChecker;
+use MediaWiki\Extension\Math\InputCheck\BaseChecker;
 use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\MediaWikiServices;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -63,8 +64,6 @@ abstract class MathRenderer {
 	protected $mode = 'png';
 	/** @var string input type */
 	protected $inputType = 'tex';
-	/** @var MathRestbaseInterface used for checking */
-	protected $rbi;
 	/** @var array with rendering warnings */
 	protected $warnings;
 	/** @var LoggerInterface */
@@ -393,14 +392,6 @@ abstract class MathRenderer {
 		return $out;
 	}
 
-	/**
-	 * @param MathRestbaseInterface $param
-	 */
-	public function setRestbaseInterface( $param ) {
-		$this->rbi = $param;
-		$this->rbi->setPurge( $this->isPurge() );
-	}
-
 	public function hasWarnings() {
 		if ( is_array( $this->warnings ) && count( $this->warnings ) ) {
 			return true;
@@ -681,9 +672,6 @@ abstract class MathRenderer {
 	 */
 	public function getSvg( /** @noinspection PhpUnusedParameterInspection */ $render = 'render' ) {
 		// Spaces will prevent the image from being displayed correctly in the browser
-		if ( !$this->svg && $this->rbi ) {
-			$this->svg = $this->rbi->getSvg();
-		}
 		return trim( $this->svg );
 	}
 
@@ -722,7 +710,10 @@ abstract class MathRenderer {
 	 * @return bool
 	 */
 	protected function doCheck() {
-		$checker = new RestbaseChecker( $this->tex, $this->getInputType(), $this->rbi );
+		/** @var BaseChecker */
+		$checker = MediaWikiServices::getInstance()
+			->getService( 'Math.CheckerFactory' )
+			->newMathoidChecker( $this->tex, $this->getInputType() );
 		try {
 			if ( $checker->isValid() ) {
 				$this->setTex( $checker->getValidTex() );

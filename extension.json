@@ -21,7 +21,6 @@
 		"MathChemSymbolsDataModule": "src/MathChemSymbolsDataModule.php",
 		"MathHooks": "src/MathHooks.php",
 		"MathRenderer": "src/MathRenderer.php",
-		"MathRestbaseInterface": "src/MathRestbaseInterface.php",
 		"MathSource": "src/MathSource.php",
 		"MathMathML": "src/MathMathML.php",
 		"MathMathMLCli": "src/MathMathMLCli.php",

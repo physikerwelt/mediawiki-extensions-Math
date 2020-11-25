@@ -12,7 +12,8 @@ use Wikimedia\TestingAccessWrapper;
  *
  * @license GPL-2.0-or-later
  */
-class MathMathMLTest extends MediaWikiTestCase {
+class MathMathMLTest extends MediaWikiIntegrationTestCase {
+	use MockHttpTrait;
 
 	// State-variables for HTTP Mockup classes
 	public static $content = null;
@@ -184,11 +185,16 @@ class MathMathMLTest extends MediaWikiTestCase {
 	}
 
 	public function testintegrationTestWithLinks() {
-		$this->markTestSkipped( 'All HTTP requests are banned in tests. See T265628.' );
+		$this->installMockHttp( [
+			$this->makeFakeHttpRequest( file_get_contents( __DIR__ .
+				'/InputCheck/data/sinx.json' ) ),
+			$this->makeFakeHttpRequest( file_get_contents( __DIR__ .
+				'/data/sinx.json' ) ),
+		] );
 		$p = MediaWikiServices::getInstance()->getParserFactory()->create();
 		$po = ParserOptions::newFromAnon();
 		$t = Title::newFromText( __METHOD__ );
-		$res = $p->parse( '[[test|<math forcemathmode="png">a+b</math>]]', $t, $po )->getText();
+		$res = $p->parse( '[[test|<math forcemathmode="png">\sin x</math>]]', $t, $po )->getText();
 		$this->assertStringContainsString( '</a>', $res );
 		$this->assertStringContainsString( 'png', $res );
 	}
@@ -227,22 +233,14 @@ class MathMathMLTest extends MediaWikiTestCase {
 	}
 
 	public function testWarning() {
-		$this->markTestSkipped( 'All HTTP requests are banned in tests. See T265628.' );
 		$this->setMwGlobals( "wgMathDisableTexFilter", 'always' );
 		$renderer = new MathMathML();
-		$rbi = $this->getMockBuilder( MathRestbaseInterface::class )
-			->setMethods( [ 'getWarnings', 'getSuccess' ] )
-			->setConstructorArgs( [ 'a+b' ] )
-			->getMock();
-		$rbi->method( 'getWarnings' )->willReturn( [ (object)[ 'type' => 'mhchem-deprecation' ] ] );
-		$rbi->method( 'getSuccess' )->willReturn( true );
-		$renderer->setRestbaseInterface( $rbi );
 		$renderer->render();
 		$parser = $this->createMock( Parser::class );
 		$parser->method( 'addTrackingCategory' )->willReturn( true );
 		$parser->expects( $this->once() )
 			->method( 'addTrackingCategory' )
-			->with( 'math-tracking-category-mhchem-deprecation' );
+			->with( 'math-tracking-category-render-error' );
 		$renderer->addTrackingCategories( $parser );
 	}
 
